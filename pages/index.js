@@ -8,6 +8,7 @@ export default function HomePage(){
   const [prompts, setPrompts] = useState([]); // [{id, prompt, texte, copied}]
   const [originalPrompts, setOriginalPrompts] = useState([]);
   const [outputText, setOutputText] = useState('');
+  const [titleAndHashtags, setTitleAndHashtags] = useState('');
   const [singlePrompt, setSinglePrompt] = useState('');
   const [status, setStatus] = useState('inactif');
   const [promptImages, setPromptImages] = useState({}); // { [id]: { url, dataURI } }
@@ -102,15 +103,22 @@ export default function HomePage(){
 
   function handleGenerateText(){
     if(!parsed){ alert('Chargez/parsez le JSON avant.'); return; }
-    const parts = [];
-    if(parsed.titre) parts.push(parsed.titre, '\n');
+    
+    // Texte concaténé (seulement les chapitres)
+    const textParts = [];
     if(Array.isArray(parsed.chapitres)){
-      parsed.chapitres.forEach(ch=>{ if(ch.texte) parts.push(ch.texte); });
+      parsed.chapitres.forEach(ch=>{ if(ch.texte) textParts.push(ch.texte); });
     }
+    setOutputText(textParts.join('\n\n'));
+    
+    // Titre + hashtags séparés
+    const titleParts = [];
+    if(parsed.titre) titleParts.push(parsed.titre);
     if(parsed.hashtags){
-      parts.push('\n'+parsed.hashtags);
+      const hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.join(' ') : parsed.hashtags;
+      titleParts.push(hashtags);
     }
-    setOutputText(parts.join('\n\n'));
+    setTitleAndHashtags(titleParts.join('\n'));
   }
 
   async function handleCopyAll(){
@@ -123,6 +131,19 @@ export default function HomePage(){
       const ta = document.createElement('textarea');
       ta.value = outputText; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
       alert('Texte copié (fallback).');
+    }
+  }
+
+  async function handleCopyTitleAndHashtags(){
+    if(!titleAndHashtags){ alert('Aucun titre/hashtags à copier.'); return; }
+    try{
+      await navigator.clipboard.writeText(titleAndHashtags);
+      alert('Titre + hashtags copiés.');
+    } catch{
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = titleAndHashtags; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      alert('Titre + hashtags copiés (fallback).');
     }
   }
 
@@ -150,7 +171,7 @@ export default function HomePage(){
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem('promptImages');
     setParsed(null); setPrompts([]); setOriginalPrompts([]);
-    setJsonText(''); setOutputText(''); setSinglePrompt('');
+    setJsonText(''); setOutputText(''); setTitleAndHashtags(''); setSinglePrompt('');
     setPromptImages({});
   }
 
@@ -290,39 +311,51 @@ export default function HomePage(){
   }
 
   return (
-    <div style={{fontFamily:'Inter,system-ui,Arial', margin:'8px', background:'#f7f8fb', color:'#111', maxWidth:980, marginLeft:'auto', marginRight:'auto'}}>
-      <h2>Concaténateur JSON — Texte & Prompts + Runware Image</h2>
-      <div style={{display:'flex', flexDirection:'column', gap:12}}>
-        <div className="cols" style={{display:'flex', flexDirection:'column', gap:12}}>
+    <div style={{fontFamily:'Inter,system-ui,Arial', margin:'4px', background:'#f7f8fb', color:'#111', maxWidth:980, marginLeft:'auto', marginRight:'auto', padding:'8px'}}>
+      <h2 style={{fontSize:'18px', marginBottom:'16px', textAlign:'center'}}>Concaténateur JSON — Texte & Prompts + Runware Image</h2>
+      <div style={{display:'flex', flexDirection:'column', gap:8}}>
+        <div className="cols" style={{display:'flex', flexDirection:'column', gap:8}}>
           {/* Left panel */}
           <div className="card" style={{flex:1, background:'#fff', borderRadius:10, padding:12, boxShadow:'0 6px 18px rgba(20,20,40,0.06)'}}>
             <div className="col" style={{display:'flex', flexDirection:'column', gap:8}}>
               {/* Runtime credentials */}
-              <div className="row" style={{display:'flex', gap:8, alignItems:'center'}}>
-                <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="API Key Runware" style={{flex:1, padding:8, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}} />
-                <div style={{flex:1, display:'flex', gap:4}}>
-                  <select value={modelId} onChange={e=>setModelId(e.target.value)} style={{flex:1, padding:8, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}}>
+              <div className="row" style={{display:'flex', flexDirection:'column', gap:8}}>
+                <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="API Key Runware" style={{width:'100%', padding:10, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}} />
+                <div style={{display:'flex', gap:4, flexDirection:'column'}}>
+                  <select value={modelId} onChange={e=>setModelId(e.target.value)} style={{width:'100%', padding:10, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}}>
                     <option value="runware:101@1">runware:101@1</option>
                     <option value="rundiffusion:133005@920957">rundiffusion:133005@920957</option>
                     <option value="custom">Autre...</option>
                   </select>
                   {modelId === 'custom' && (
-                    <input type="text" value={customModel} onChange={e=>setCustomModel(e.target.value)} placeholder="Modèle personnalisé" style={{flex:1, padding:8, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}} />
+                    <input type="text" value={customModel} onChange={e=>setCustomModel(e.target.value)} placeholder="Modèle personnalisé" style={{width:'100%', padding:10, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}} />
                   )}
                 </div>
               </div>
               <label className="small" style={{fontSize:13, color:'#374151'}}>Coller JSON (titre, chapitres[id, texte, prompt], hashtags)</label>
               <textarea id="jsonInput" value={jsonText} onChange={e=>setJsonText(e.target.value)} placeholder='Collez votre JSON ici...' style={{width:'100%', minHeight:80, padding:8, fontSize:14, border:'1px solid #e3e6ee', borderRadius:8, resize:'vertical'}} />
 
-              <div className="row" style={{display:'flex', gap:8, alignItems:'center'}}>
-                <button onClick={handleParse} style={btn()}>Charger / Parser JSON</button>
-                <button onClick={handleGenerateText} style={btn()}>Générer texte concaténé</button>
-                <button onClick={handleCopyAll} style={btn()}>Copier tout le texte</button>
-                <button onClick={handleResetPrompts} style={btn('#6b7280')}>Réinitialiser prompts</button>
-                <button onClick={handleResetCopiedState} style={btn('#059669')}>Réactiver copie</button>
-                <button onClick={handleForceSaveImages} style={btn('#7c3aed')}>Sauver images</button>
-                <button onClick={handleClearStorage} style={btn('#e11d48')}>Suppr. mémoire JSON</button>
+              <div className="row" style={{display:'flex', flexDirection:'column', gap:6}}>
+                <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                  <button onClick={handleParse} style={btn()}>Charger JSON</button>
+                  <button onClick={handleGenerateText} style={btn()}>Générer texte</button>
+                </div>
+                <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                  <button onClick={handleCopyAll} style={btn()}>Copier texte</button>
+                  <button onClick={handleCopyTitleAndHashtags} style={btn('#10b981')}>Copier titre+tags</button>
+                </div>
+                <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                  <button onClick={handleResetPrompts} style={btn('#6b7280')}>Reset prompts</button>
+                  <button onClick={handleResetCopiedState} style={btn('#059669')}>Réactiver copie</button>
+                </div>
+                <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                  <button onClick={handleForceSaveImages} style={btn('#7c3aed')}>Sauver images</button>
+                  <button onClick={handleClearStorage} style={btn('#e11d48')}>Suppr. tout</button>
+                </div>
               </div>
+
+              <label className="small" style={{fontSize:13, color:'#374151'}}>Titre + Hashtags</label>
+              <textarea value={titleAndHashtags} onChange={e=>setTitleAndHashtags(e.target.value)} placeholder="Titre et hashtags apparaîtront ici..." style={{width:'100%', minHeight:60, padding:8, fontSize:14, border:'1px solid #e3e6ee', borderRadius:8, resize:'vertical'}} />
 
               <label className="small" style={{fontSize:13, color:'#374151'}}>Texte concaténé</label>
               <textarea id="outputText" value={outputText} onChange={e=>setOutputText(e.target.value)} placeholder="Le texte concaténé apparaîtra ici..." style={{width:'100%', minHeight:80, padding:8, fontSize:14, border:'1px solid #e3e6ee', borderRadius:8, resize:'vertical'}} />
@@ -338,20 +371,22 @@ export default function HomePage(){
                   const copied = !!p.copied;
                   const key = p.id ?? idx;
                   return (
-                    <div key={key} className="prompt-row" style={{display:'flex', flexDirection:'column', gap:6, marginBottom:10}}>
-                      <div style={{display:'flex', gap:8, alignItems:'center'}}>
-                        <div className={`prompt-box ${copied? 'copied copied-text':''}`} style={{flex:1, padding:8, borderRadius:8, border:'1px solid #e6e9f2', background:'#fbfcff', fontSize:14, wordBreak:'break-word', textDecoration: copied ? 'line-through' : 'none', color: copied ? 'red' : '#111'}}>
+                    <div key={key} className="prompt-row" style={{display:'flex', flexDirection:'column', gap:6, marginBottom:12, padding:8, background:'#f8fafc', borderRadius:8, border:'1px solid #e2e8f0'}}>
+                      <div style={{display:'flex', flexDirection:'column', gap:6}}>
+                        <div className={`prompt-box ${copied? 'copied copied-text':''}`} style={{width:'100%', padding:8, borderRadius:8, border:'1px solid #e6e9f2', background:'#fbfcff', fontSize:13, wordBreak:'break-word', textDecoration: copied ? 'line-through' : 'none', color: copied ? 'red' : '#111', minHeight:'40px'}}>
                           {copied ? (p.texte || '') : (p.prompt || '')}
                         </div>
-                        <button className="small-btn" onClick={()=>handleCopyPrompt(idx)} style={{padding:'6px 8px', borderRadius:6, border:0, background:'#111827', color:'#fff', fontSize:13}}>Copier</button>
-                        <button className="small-btn" disabled={busy} onClick={()=>handleGenerateForPrompt(idx)} style={{padding:'6px 8px', borderRadius:6, border:0, background: busy ? '#94a3b8' : '#2563eb', color:'#fff', fontSize:13, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.8 : 1}}>Générer</button>
+                        <div style={{display:'flex', gap:6, justifyContent:'space-between'}}>
+                          <button className="small-btn" onClick={()=>handleCopyPrompt(idx)} style={{flex:1, padding:'8px 12px', borderRadius:6, border:0, background:'#111827', color:'#fff', fontSize:12}}>Copier</button>
+                          <button className="small-btn" disabled={busy} onClick={()=>handleGenerateForPrompt(idx)} style={{flex:1, padding:'8px 12px', borderRadius:6, border:0, background: busy ? '#94a3b8' : '#2563eb', color:'#fff', fontSize:12, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.8 : 1}}>Générer</button>
+                        </div>
                       </div>
                       {generatingFor === key && (
-                        <div className="muted" style={{color:'#6b7280', fontSize:13}}>Génération en cours...</div>
+                        <div className="muted" style={{color:'#6b7280', fontSize:12, textAlign:'center', padding:'4px'}}>Génération en cours...</div>
                       )}
                       {(promptImages[key]?.url) && (
-                        <div>
-                          <img src={promptImages[key].url} alt="generated" style={{maxWidth:'100%', borderRadius:8, boxShadow:'0 6px 18px rgba(0,0,0,0.08)'}} />
+                        <div style={{marginTop:8}}>
+                          <img src={promptImages[key].url} alt="generated" style={{width:'100%', borderRadius:8, boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
                         </div>
                       )}
                     </div>
@@ -379,7 +414,7 @@ export default function HomePage(){
 }
 
 function btn(bg = '#0b5fff'){
-  return { cursor:'pointer', padding:'8px 12px', borderRadius:8, border:0, background:bg, color:'#fff' };
+  return { cursor:'pointer', padding:'8px 12px', borderRadius:8, border:0, background:bg, color:'#fff', fontSize:'13px', fontWeight:'500' };
 }
 
 

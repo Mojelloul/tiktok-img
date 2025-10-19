@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Concaténateur JSON + Générateur d'images Runware</title>
+<style>
+  :root{--primary:#0b5fff;--danger:#e11d48;--muted:#6b7280}
+  body{font-family:Inter,system-ui,Arial;margin:8px;background:#f7f8fb;color:#111;max-width:980px;margin-left:auto;margin-right:auto}
+  .container{display:flex;gap:12px;flex-direction:column}
+  /* On adapte l'affichage pour mobile : colonnes empilées; sur large écran on montre en ligne */
+  @media(min-width:820px){ .cols{flex-direction:row} }
+  .cols{display:flex;flex-direction:column;gap:12px}
+  .card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 6px 18px rgba(20,20,40,0.06)}
+  textarea{width:100%;min-height:80px;padding:8px;font-size:14px;border:1px solid #e3e6ee;border-radius:8px;resize:vertical}
+  input[type=text], input[type=password] { width:100%;padding:8px;border-radius:8px;border:1px solid #e3e6ee;font-size:14px }
+  .row{display:flex;gap:8px;align-items:center}
+  .col{display:flex;flex-direction:column;gap:8px}
+  button{cursor:pointer;padding:8px 12px;border-radius:8px;border:0;background:var(--primary);color:#fff}
+  .muted{color:var(--muted);font-size:13px}
+  .prompt-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .prompt-box{flex:1;padding:8px;border-radius:8px;border:1px solid #e6e9f2;background:#fbfcff;font-size:14px;word-break:break-word}
+  .small-btn{padding:6px 8px;border-radius:6px;border:0;background:#111827;color:#fff;font-size:13px}
+  .copied{text-decoration:line-through;color:red}
+  .copied-text{color:red;font-weight:700}
+  .right-panel{display:flex;flex-direction:column;gap:10px}
+  .img-grid{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+  img.generated{max-width:100%;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.08)}
+  label.small{font-size:13px;color:#374151}
+  .hint{font-size:12px;color:#b91c1c}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Concaténateur JSON — Texte & Prompts + Runware Image</h2>
+  <div class="cols">
+
+    <!-- gauche : JSON / prompts / output -->
+    <div style="flex:1" class="card">
+      <div class="col">
+        <label class="small">Coller JSON (titre, chapitres[id, texte, prompt])</label>
+        <textarea id="jsonInput" placeholder='Collez votre JSON ici...'></textarea>
+
+        <div class="row">
+          <button id="parseBtn">Charger / Parser JSON</button>
+          <button id="genBtn">Générer texte concaténé</button>
+          <button id="copyGenBtn">Copier tout le texte</button>
+          <button id="resetPrompts" style="background:#6b7280">Réinitialiser prompts</button>
+          <button id="clearStorage" style="background:var(--danger)">Suppr. mémoire JSON</button>
+        </div>
+
+        <label class="small">Texte concaténé</label>
+        <textarea id="outputText" placeholder="Le texte concaténé apparaîtra ici..."></textarea>
+
+        <hr>
+
+        <label class="small">Liste des prompts</label>
+        <div id="promptsList" aria-live="polite"></div>
+        <div class="muted">Prompts copiées → barrées + texte affiché en rouge</div>
+        <div class="muted">Prompts restantes: <span id="remainingCount">0</span></div>
+      </div>
+    </div>
+
+    <!-- droite : panneau Runware -->
+    <div style="width:340px;min-width:260px" class="card right-panel">
+      <div>
+        <label class="small">Clé API Runware (usage local/test uniquement)</label>
+        <input id="apiKey" type="password" placeholder="Collez votre clé API ici (ex: s9sa...)" value="s9saT0cvacH0r2gAkMd3kfvkP3JMypRn">
+        <div class="muted">⚠️ Attention : mettre la clé dans la page = clé visible côté client. Pour usage perso ok; en prod utilisez un serveur proxy.</div>
+      </div>
+
+      <div>
+        <label class="small">Modèle (identifiant Runware)</label>
+        <input id="modelInput" type="text" placeholder="model id (ex: juggernaut-xl-v9 ou runware:101@1)" value="juggernaut-xl">
+        <div class="muted">Si tu connais l'ID exact Runware, mets-le. Sinon laisse "juggernaut-xl".</div>
+      </div>
+
+      <div>
+        <label class="small">Prompt à générer (9:16 TikTok)</label>
+        <textarea id="singlePrompt" style="height:90px" placeholder="Collez ou écris une prompt ici...">photo en gros plan d'une femme d'une vingtaine d'années, photographie de rue, film, tons chauds orange atténués</textarea>
+      </div>
+
+      <div class="row">
+        <button id="generateBtn">Générer l'image</button>
+        <button id="generateFromSelected" style="background:#0b9f55">Générer depuis prompt sélectionnée</button>
+      </div>
+
+      <div id="status" class="muted">Statut: inactif</div>
+
+      <div class="img-grid card" style="padding:8px;">
+        <div class="muted">Images générées</div>
+        <div id="imagesContainer"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* --------------------------
+  Partie A : mémoire JSON + prompts (existant)
+---------------------------*/
+let parsed = null;
+let prompts = [];
+let originalPrompts = [];
+
+const jsonInput = document.getElementById('jsonInput');
+const parseBtn = document.getElementById('parseBtn');
+const genBtn = document.getElementById('genBtn');
+const copyGenBtn = document.getElementById('copyGenBtn');
+const outputText = document.getElementById('outputText');
+const promptsList = document.getElementById('promptsList');
+const remainingCount = document.getElementById('remainingCount');
+const resetPromptsBtn = document.getElementById('resetPrompts');
+const clearStorageBtn = document.getElementById('clearStorage');
+
+function safeParseJSON(text){
+  try { return JSON.parse(text); } catch(e){ alert('JSON invalide: '+e.message); return null; }
+}
+
+function renderPrompts(){
+  promptsList.innerHTML = '';
+  if(!prompts.length){
+    promptsList.innerHTML = '<div class="muted">Aucun prompt restant.</div>';
+    remainingCount.textContent = '0';
+    return;
+  }
+  remainingCount.textContent = prompts.filter(p=>!p.copied).length;
+  prompts.forEach((p, idx)=>{
+    const row = document.createElement('div');
+    row.className = 'prompt-row';
+    const box = document.createElement('div');
+    box.className = 'prompt-box';
+    if(p.copied){
+      box.textContent = p.texte;
+      box.classList.add('copied-text','copied');
+    } else {
+      box.textContent = p.prompt;
+    }
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'small-btn';
+    copyBtn.textContent = 'Copier';
+    copyBtn.disabled = !!p.copied;
+
+    // clip-to-generate button (small)
+    const genSmall = document.createElement('button');
+    genSmall.className = 'small-btn';
+    genSmall.style.background='#2563eb'; genSmall.style.marginLeft='4px';
+    genSmall.textContent = 'Générer';
+    genSmall.onclick = ()=> {
+      // when clicking generate beside a prompt, set the right-side prompt field and press generate
+      document.getElementById('singlePrompt').value = p.prompt;
+      document.getElementById('modelInput').value = document.getElementById('modelInput').value || 'juggernaut-xl';
+      document.getElementById('generateBtn').click();
+    };
+
+    copyBtn.onclick = async ()=>{
+      try { await navigator.clipboard.writeText(p.prompt); }
+      catch(e){ const ta=document.createElement('textarea'); ta.value=p.prompt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+      p.copied = true;
+      box.textContent = p.texte;
+      box.classList.add('copied-text','copied');
+      copyBtn.disabled = true;
+      saveToLocalStorage();
+      remainingCount.textContent = prompts.filter(p=>!p.copied).length;
+    };
+
+    row.appendChild(box);
+    row.appendChild(copyBtn);
+    row.appendChild(genSmall);
+    promptsList.appendChild(row);
+  });
+}
+
+// save parsed JSON + copied flags into localStorage
+function saveToLocalStorage(){
+  if(parsed && Array.isArray(parsed.chapitres)){
+    parsed.chapitres.forEach(c=>{
+      const match = prompts.find(p=>p.id===c.id);
+      if(match) c.copied = !!match.copied;
+    });
+    localStorage.setItem('savedJSON', JSON.stringify(parsed));
+  }
+}
+
+function loadFromLocalStorage(){
+  const s = localStorage.getItem('savedJSON');
+  if(!s) return null;
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+// parse button
+parseBtn.addEventListener('click', ()=>{
+  const txt = jsonInput.value.trim();
+  if(!txt){ alert('Collez votre JSON.'); return; }
+  const obj = safeParseJSON(txt);
+  if(!obj) return;
+  if(!Array.isArray(obj.chapitres)){ alert('JSON: champ "chapitres" manquant ou non-array.'); return; }
+
+  const saved = loadFromLocalStorage();
+  parsed = obj;
+  prompts = obj.chapitres.map(c=>{
+    let copied = false;
+    if(saved && Array.isArray(saved.chapitres)){
+      const old = saved.chapitres.find(s=>s.id===c.id);
+      if(old && old.copied) copied = true;
+    }
+    return { prompt: c.prompt||'', texte: c.texte||'', id: c.id, copied };
+  }).filter(p=>p.prompt);
+  originalPrompts = JSON.parse(JSON.stringify(prompts));
+  renderPrompts();
+  saveToLocalStorage();
+  alert('JSON chargé: '+parsed.chapitres.length+' chapitres.');
+});
+
+// generate concatenated text
+genBtn.addEventListener('click', ()=>{
+  if(!parsed){ alert('Chargez/parsez le JSON avant.'); return; }
+  const parts = [];
+  if(parsed.titre) parts.push(parsed.titre, '\n');
+  parsed.chapitres.forEach(ch=>{ if(ch.texte) parts.push(ch.texte); });
+  outputText.value = parts.join('\n\n');
+  outputText.focus();
+});
+
+// copy concatenated text
+copyGenBtn.addEventListener('click', async ()=>{
+  const txt = outputText.value;
+  if(!txt){ alert('Aucun texte à copier.'); return; }
+  try{ await navigator.clipboard.writeText(txt); alert('Texte copié.'); }
+  catch(e){ outputText.select(); document.execCommand('copy'); alert('Texte copié (fallback).'); }
+});
+
+// reset prompts (restore original)
+resetPromptsBtn.addEventListener('click', ()=>{
+  prompts = JSON.parse(JSON.stringify(originalPrompts || []));
+  renderPrompts();
+  saveToLocalStorage();
+});
+
+// clear storage (delete savedJSON)
+clearStorageBtn.addEventListener('click', ()=>{
+  if(confirm('Supprimer la mémoire JSON ?')) {
+    localStorage.removeItem('savedJSON');
+    parsed = null; prompts = []; originalPrompts = [];
+    jsonInput.value = ''; outputText.value = '';
+    renderPrompts();
+    alert('Mémoire JSON supprimée.');
+  }
+});
+
+// on load: restore saved JSON if any
+window.addEventListener('load', ()=>{
+  const saved = loadFromLocalStorage();
+  if(saved && Array.isArray(saved.chapitres)){
+    parsed = saved;
+    prompts = saved.chapitres.map(c=>({ prompt:c.prompt||'', texte:c.texte||'', id:c.id, copied: !!c.copied })).filter(p=>p.prompt);
+    originalPrompts = JSON.parse(JSON.stringify(prompts));
+    renderPrompts();
+    // no alert if you prefer silent restore - showing short status
+    console.log('JSON rechargé depuis la mémoire.');
+  } else {
+    renderPrompts();
+  }
+});
+
+/* --------------------------
+  Partie B : Runware Image Generation (front-end)
+  Docs de référence : https://runware.ai/docs/en/image-inference/api-reference
+  Endpoint: POST https://api.runware.ai/v1
+  On envoie un array JSON (une tâche) ; on utilise Authorization: Bearer <API_KEY>
+---------------------------*/
+
+const apiKeyInput = document.getElementById('apiKey');
+const modelInput = document.getElementById('modelInput');
+const singlePromptTa = document.getElementById('singlePrompt');
+const generateBtn = document.getElementById('generateBtn');
+const generateFromSelected = document.getElementById('generateFromSelected');
+const statusEl = document.getElementById('status');
+const imagesContainer = document.getElementById('imagesContainer');
+
+function uuidv4(){
+  // simple UUIDv4 generator
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+    const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+
+function setStatus(t){
+  statusEl.textContent = 'Statut: ' + t;
+}
+
+// build payload and call Runware
+async function callRunwareGenerate(prompt, modelId, apiKey){
+  setStatus('préparation...');
+  const taskUUID = uuidv4();
+  // TikTok vertical 9:16 recommended sizes (Runware supports width x height)
+  const width = 768;
+  const height = 1344;
+
+  const task = {
+    taskType: "imageInference",
+    taskUUID,
+    deliveryMethod: "sync",          // try to get result in response
+    outputType: "dataURI",          // get direct data URI (if supported) for easy display
+    outputFormat: "PNG",
+    positivePrompt: prompt,
+    model: modelId,
+    width,
+    height,
+    numberResults: 1
+  };
+
+  const body = [ task ];
+
+  setStatus('envoi vers Runware...');
+  try {
+    const res = await fetch('https://api.runware.ai/v1', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // prefer header auth; alternative is include authentication task as first element in array
+        'Authorization': 'Bearer ' + apiKey
+      },
+      body: JSON.stringify(body),
+      // timeout cannot be directly set here; some browsers may abort long tasks
+    });
+
+    if(!res.ok){
+      const txt = await res.text().catch(()=>null);
+      setStatus('Erreur API: ' + res.status);
+      console.error('Runware erreur', res.status, txt);
+      alert('Erreur API: ' + res.status + '\nVoir console pour details.');
+      return null;
+    }
+
+    const json = await res.json();
+    // The response format can vary; try to find image data
+    // Depending on API: result might be array -> [ { data: [...], ... } ] or object with data[0]
+    setStatus('réponse reçue');
+    console.log('Runware réponse brute', json);
+
+    // Try to extract image in multiple ways:
+    // 1) If JSON is array and first element has imageDataURI
+    let imageData = null;
+    if(Array.isArray(json) && json.length && json[0].imageDataURI) {
+      imageData = json[0].imageDataURI;
+    }
+    // 2) If object and data[0].imageDataURI
+    if(!imageData && json.data && Array.isArray(json.data) && json.data[0] && json.data[0].imageDataURI){
+      imageData = json.data[0].imageDataURI;
+    }
+    // 3) base64 field
+    if(!imageData && Array.isArray(json) && json[0] && json[0].imageBase64Data){
+      imageData = 'data:image/png;base64,' + json[0].imageBase64Data;
+    }
+    if(!imageData && json.data && json.data[0] && json.data[0].imageBase64Data){
+      imageData = 'data:image/png;base64,' + json.data[0].imageBase64Data;
+    }
+    // 4) URL
+    if(!imageData && Array.isArray(json) && json[0] && json[0].imageURL){
+      imageData = json[0].imageURL;
+    }
+    if(!imageData && json.data && json.data[0] && json.data[0].imageURL){
+      imageData = json.data[0].imageURL;
+    }
+
+    if(!imageData){
+      setStatus('Pas d\'image reçue');
+      console.error('Réponse Runware sans image', json);
+      alert('Aucune image trouvée dans la réponse. Regarde la console (F12) pour détails.');
+      return null;
+    }
+
+    return { imageData, raw: json };
+  } catch(err){
+    console.error('Erreur fetch Runware', err);
+    setStatus('Erreur réseau');
+    alert('Erreur réseau ou CORS. Voir console.');
+    return null;
+  }
+}
+
+function addImageToPage(dataURI, meta){
+  const wrapper = document.createElement('div');
+  const img = document.createElement('img');
+  img.className = 'generated';
+  img.src = dataURI;
+  wrapper.appendChild(img);
+
+  const info = document.createElement('div');
+  info.className = 'muted';
+  info.style.marginTop='6px';
+  info.textContent = meta || ('générée ' + new Date().toLocaleTimeString());
+  wrapper.appendChild(info);
+
+  // add download button
+  const dl = document.createElement('button');
+  dl.className = 'small-btn';
+  dl.style.marginTop='6px';
+  dl.textContent = 'Télécharger';
+  dl.onclick = ()=>{
+    const a = document.createElement('a');
+    a.href = dataURI;
+    a.download = 'runware_image.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  wrapper.appendChild(dl);
+
+  imagesContainer.prepend(wrapper); // newest on top
+}
+
+/* Generate button */
+generateBtn.addEventListener('click', async ()=>{
+  const prompt = singlePromptTa.value.trim();
+  const apiKey = apiKeyInput.value.trim();
+  const modelId = modelInput.value.trim() || 'juggernaut-xl';
+  if(!prompt){ alert('Colle une prompt.'); return; }
+  if(!apiKey){ if(!confirm('Aucune clé API fournie — continuer sans clé (probablement échouera) ?')) return; }
+
+  setStatus('génération en cours...');
+  const res = await callRunwareGenerate(prompt, modelId, apiKey);
+  if(res && res.imageData){
+    addImageToPage(res.imageData, `prompt: ${prompt}`);
+    setStatus('image générée');
+  }
+});
+
+/* Quick generate from selected prompt in list */
+generateFromSelected.addEventListener('click', ()=>{
+  // if any prompt remains not copied, use the first non-copied; otherwise use first prompt
+  const p = prompts.find(x=>!x.copied) || prompts[0];
+  if(!p){ alert('Aucune prompt disponible.'); return; }
+  document.getElementById('singlePrompt').value = p.prompt;
+  document.getElementById('generateBtn').click();
+});
+
+/* Note about CORS:
+   - Runware normally allows direct browser requests but if you hit CORS errors in Safari/Chrome,
+     you will need to run the call from a small proxy server (or use Runware's WebSocket SDK).
+   - If you get CORS blocked, open the console to confirm the error.
+*/
+
+</script>
+</body>
+</html>
