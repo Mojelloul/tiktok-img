@@ -15,7 +15,7 @@ export default function HomePage(){
   const [busy, setBusy] = useState(false); // block multiple generations at once
   const [generatingFor, setGeneratingFor] = useState(null); // key of the prompt currently generating
   const [apiKey, setApiKey] = useState('');
-  const [modelId, setModelId] = useState('runware:101@1');
+  const [modelId, setModelId] = useState('rundiffusion:133005@920957');
   const [customModel, setCustomModel] = useState('');
   const remaining = useMemo(()=>prompts.filter(p=>!p.copied).length, [prompts]);
 
@@ -323,8 +323,8 @@ export default function HomePage(){
                 <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="API Key Runware" style={{width:'100%', padding:10, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}} />
                 <div style={{display:'flex', gap:4, flexDirection:'column'}}>
                   <select value={modelId} onChange={e=>setModelId(e.target.value)} style={{width:'100%', padding:10, borderRadius:8, border:'1px solid #e3e6ee', fontSize:14}}>
-                    <option value="runware:101@1">runware:101@1</option>
-                    <option value="rundiffusion:133005@920957">rundiffusion:133005@920957</option>
+                  <option value="rundiffusion:133005@920957">rundiffusion:133005@920957</option>
+                  <option value="runware:101@1">runware:101@1</option>
                     <option value="custom">Autre...</option>
                   </select>
                   {modelId === 'custom' && (
